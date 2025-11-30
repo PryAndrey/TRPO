@@ -1,0 +1,91 @@
+@startuml Component/Code
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title Order Service - Диаграмма компонента и кода
+
+Container(order_service_container, "Order Service", "Kotlin, Spring Boot", "Микросервис управления корзиной и заказами")
+
+Container_Boundary(order_service_boundary, "Order Service") {
+    Component(order_controller, "Order Controller", "Spring MVC", "Обрабатывает REST API запросы: создание заказа, получение заказов, обновление статуса")
+    Component(cart_controller, "Cart Controller", "Spring MVC", "Обрабатывает REST API запросы для работы с корзиной: добавление, удаление, обновление товаров")
+
+    Component(order_application_service, "Order Application Service", "Kotlin", "Координация use-cases: создание заказа, отмена, просмотр истории, управление корзиной")
+    Component(order_saga_orchestrator, "Order Saga Orchestrator", "Kotlin", "Оркестрация процесса оформления заказа: проверка товаров, создание заказа, оплата, уведомления")
+
+    Component(order_aggregate, "Order Aggregate", "Kotlin Domain Model", "Доменная модель заказа: Order, OrderItem, OrderStatus, PaymentStatus, DeliveryStatus")
+    Component(cart_aggregate, "Cart Aggregate", "Kotlin Domain Model", "Доменная модель корзины: Cart, CartItem")
+
+    Component(order_repository, "Order Repository", "Kotlin Interface", "Интерфейс доступа к данным заказов")
+    Component(cart_repository, "Cart Repository", "Kotlin Interface", "Интерфейс доступа к данным корзин")
+
+    Component(order_db_adapter, "Order DB Adapter", "Spring Data JPA", "Реализация репозитория заказов, маппинг в PostgreSQL")
+    Component(cart_cache_adapter, "Cart Cache Adapter", "Spring Data Redis", "Реализация репозитория корзин, хранение в Redis")
+
+    Component(auth_client, "Auth Client", "Kotlin gRPC Client", "Клиент для вызова Auth Service: валидация пользователей и прав доступа")
+    Component(catalog_client, "Catalog Client", "Kotlin gRPC Client", "Клиент для вызова Catalog Service: проверка наличия товаров, получение цен и атрибутов")
+    Component(payment_client, "Payment Client", "Kotlin gRPC Client", "Клиент для вызова Payment Service: инициация платежей, проверка статусов")
+
+    Component(event_publisher, "Event Publisher", "Kotlin", "Публикация доменных событий: OrderCreatedEvent, OrderStatusChangedEvent, OrderCancelledEvent")
+    Component(outbox_reader, "Outbox Reader", "Kotlin", "Чтение событий из Outbox таблицы и отправка в RabbitMQ для гарантированной доставки")
+    Component(event_handler, "Event Handler", "Kotlin", "Обработчик входящих событий из RabbitMQ: PaymentCompletedEvent, PaymentFailedEvent")
+
+    Component(audit_logger, "Audit Logger", "Kotlin", "Логирование действий пользователей для аудита и соответствия SEC03")
+}
+
+ContainerDb(order_db, "Order Database", "PostgreSQL", "Хранит заказы, статусы, историю изменений, outbox таблицу для событий")
+ContainerDb(cache, "Cache", "Redis", "Хранит корзины пользователей для быстрого доступа")
+Container(rabbitmq, "RabbitMQ", "Erlang", "Брокер сообщений для публикации и подписки на события")
+Container(auth_service, "Auth Service", "Kotlin, Spring Boot", "Микросервис аутентификации и авторизации")
+Container(catalog_service, "Catalog Service", "Kotlin, Spring Boot", "Микросервис каталога товаров")
+Container(payment_service, "Payment Service", "Kotlin, Spring Boot", "Микросервис обработки платежей")
+Container(elk_stack, "ELK Stack", "Elasticsearch, Logstash, Kibana", "Централизованное логирование")
+
+' Связи контроллеров с application service
+Rel(order_controller, order_application_service, "Вызывает операции с заказами", "Kotlin calls")
+Rel(cart_controller, order_application_service, "Вызывает операции с корзиной", "Kotlin calls")
+
+' Связи application service с доменными моделями и репозиториями
+Rel(order_application_service, order_aggregate, "Создание и валидация заказов", "Kotlin calls")
+Rel(order_application_service, cart_aggregate, "Управление корзиной", "Kotlin calls")
+Rel(order_application_service, order_repository, "Сохранение и получение заказов", "Kotlin calls")
+Rel(order_application_service, cart_repository, "Сохранение и получение корзин", "Kotlin calls")
+Rel(order_application_service, order_saga_orchestrator, "Оркестрация процесса оформления заказа", "Kotlin calls")
+Rel(order_application_service, auth_client, "Валидация пользователей", "Kotlin calls")
+Rel(order_application_service, catalog_client, "Проверка товаров", "Kotlin calls")
+Rel(order_application_service, event_publisher, "Публикация событий", "Kotlin calls")
+Rel(order_application_service, audit_logger, "Логирование действий", "Kotlin calls")
+
+' Связи saga orchestrator
+Rel(order_saga_orchestrator, catalog_client, "Проверка наличия и цен товаров", "Kotlin calls")
+Rel(order_saga_orchestrator, payment_client, "Инициация платежа", "Kotlin calls")
+Rel(order_saga_orchestrator, order_aggregate, "Создание заказа", "Kotlin calls")
+Rel(order_saga_orchestrator, event_publisher, "Публикация событий оформления", "Kotlin calls")
+
+' Связи репозиториев с адаптерами
+Rel(order_repository, order_db_adapter, "Реализация доступа к БД", "Kotlin interface")
+Rel(cart_repository, cart_cache_adapter, "Реализация доступа к кешу", "Kotlin interface")
+
+' Связи адаптеров с хранилищами
+Rel(order_db_adapter, order_db, "Чтение/запись заказов", "JDBC/JPA")
+Rel(cart_cache_adapter, cache, "Чтение/запись корзин", "Redis Client")
+Rel(event_publisher, order_db, "Сохраняет события в outbox таблицу", "JDBC")
+
+' Связи outbox reader
+Rel(outbox_reader, order_db, "Читает события из outbox", "JDBC")
+Rel(outbox_reader, rabbitmq, "Отправляет события в RabbitMQ", "AMQP")
+
+' Связи event handler (входящие события)
+Rel(rabbitmq, event_handler, "Получает события из RabbitMQ", "AMQP")
+Rel(event_handler, order_application_service, "Обрабатывает PaymentCompletedEvent, PaymentFailedEvent", "Kotlin calls")
+Rel(event_handler, order_aggregate, "Обновляет статусы заказов", "Kotlin calls")
+
+' Связи клиентов с внешними сервисами
+Rel(auth_client, auth_service, "gRPC вызовы для валидации", "gRPC")
+Rel(catalog_client, catalog_service, "gRPC вызовы для проверки товаров", "gRPC")
+Rel(payment_client, payment_service, "gRPC вызовы для обработки платежей", "gRPC")
+
+' Связи audit logger
+Rel(audit_logger, elk_stack, "Отправка логов для аудита", "HTTP")
+
+@enduml
