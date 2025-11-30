@@ -1,0 +1,123 @@
+@startuml Container
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Интернет-магазин - Диаграмма контейнеров
+
+Person(customer, "Покупатель", "Ищет товары, оформляет заказы")
+Person(seller, "Продавец", "Управляет товарами и заказами")
+Person(admin, "Администратор", "Управляет системой и рекомендациями")
+Person(sysadmin, "Системный администратор", "Обеспечивает работу системы")
+
+System_Boundary(esystem_boundary, "Интернет-магазин") {
+    Container(web_app, "Веб-приложение", "TypeScript, React, Next.js", "SPA для покупателей: поиск, фильтрация, корзина, заказы, отзывы")
+    Container(admin_panel, "Админ-панель", "TypeScript, React, Next.js", "SPA для администраторов и продавцов")
+
+    Container(api_gateway, "API Gateway", "Envoy Proxy", "Единый шлюз для маршрутизации, балансировки, безопасности и rate limiting")
+
+    Container(auth_service, "Auth Service", "Kotlin, Spring Boot", "Аутентификация и авторизация: OAuth 2.0, JWT, управление ролями")
+    Container(catalog_service, "Catalog Service", "Kotlin, Spring Boot", "Каталог товаров: поиск, фильтрация, просмотр карточек")
+    Container(recommendation_service, "Recommendation Service", "Kotlin, Spring Boot", "Рекомендации товаров на основе истории покупок и просмотров")
+    Container(order_service, "Order Service", "Kotlin, Spring Boot", "Управление корзиной и заказами: создание, статусы, история")
+    Container(payment_service, "Payment Service", "Kotlin, Spring Boot", "Обработка платежей, интеграция с платёжными шлюзами, возвраты")
+    Container(seller_service, "Seller Service", "Kotlin, Spring Boot", "Управление товарами продавцами, аналитика продаж")
+    Container(review_service, "Review Service", "Kotlin, Spring Boot", "Отзывы и оценки товаров и продавцов")
+    Container(notification_service_internal, "Notification Service", "Kotlin, Spring Boot", "Отправка уведомлений через внешние сервисы")
+
+    Container(rabbitmq, "RabbitMQ", "Erlang", "Брокер сообщений для асинхронной обработки событий")
+    Container(prometheus, "Prometheus", "Go", "Сбор метрик производительности и доступности")
+    Container(grafana, "Grafana", "Go", "Визуализация метрик и дашборды")
+    Container(elk_stack, "ELK Stack", "Elasticsearch, Logstash, Kibana", "Централизованное логирование и анализ логов")
+    Container(backup_service, "Backup Service", "Kotlin, Spring Boot", "Автоматическое резервное копирование данных")
+
+    ContainerDb(user_db, "User Database", "PostgreSQL", "Хранит данные пользователей, роли, профили, аудит действий")
+    ContainerDb(product_db, "Product Database", "PostgreSQL", "Хранит каталог товаров, категории, атрибуты")
+    ContainerDb(order_db, "Order Database", "PostgreSQL", "Хранит заказы, корзины, статусы, история транзакций")
+    ContainerDb(review_db, "Review Database", "PostgreSQL", "Хранит отзывы, оценки, модерацию")
+    ContainerDb(search_index, "Search Index", "Elasticsearch", "Полнотекстовый поиск и фильтрация товаров")
+    ContainerDb(cache, "Cache", "Redis", "Кеширование страниц товаров, результатов поиска, сессий, корзин")
+    ContainerDb(recommendation_db, "Recommendation Database", "PostgreSQL", "Хранит историю просмотров и покупок для рекомендаций")
+}
+
+System_Ext(payment_gateway_ext, "Платёжная система", "API")
+System_Ext(delivery_service_ext, "Служба доставки", "API")
+System_Ext(notification_service_ext, "Система уведомлений", "API")
+
+' Связи пользователей с клиентскими приложениями
+Rel(customer, web_app, "Просматривает каталог, оформляет заказы", "HTTPS")
+Rel(seller, web_app, "Управляет товарами и заказами", "HTTPS")
+Rel(admin, admin_panel, "Управляет системой, настраивает рекомендации", "HTTPS")
+Rel(sysadmin, admin_panel, "Мониторинг, бэкапы, администрирование", "HTTPS")
+
+' Связи клиентских приложений с API Gateway
+Rel(web_app, api_gateway, "Вызывает REST API", "HTTPS")
+Rel(admin_panel, api_gateway, "Вызывает REST API", "HTTPS")
+
+' Связи API Gateway с микросервисами
+Rel(api_gateway, auth_service, "Маршрутизация /api/auth", "HTTP/gRPC")
+Rel(api_gateway, catalog_service, "Маршрутизация /api/catalog", "HTTP/gRPC")
+Rel(api_gateway, recommendation_service, "Маршрутизация /api/recommendations", "HTTP/gRPC")
+Rel(api_gateway, order_service, "Маршрутизация /api/orders", "HTTP/gRPC")
+Rel(api_gateway, payment_service, "Маршрутизация /api/payments", "HTTP/gRPC")
+Rel(api_gateway, seller_service, "Маршрутизация /api/seller", "HTTP/gRPC")
+Rel(api_gateway, review_service, "Маршрутизация /api/reviews", "HTTP/gRPC")
+Rel(api_gateway, notification_service_internal, "Маршрутизация /api/notifications", "HTTP/gRPC")
+
+' Связи сервисов с базами данных
+Rel(auth_service, user_db, "Чтение/запись пользователей и ролей", "JDBC")
+Rel(catalog_service, product_db, "Чтение/запись каталога товаров", "JDBC")
+Rel(catalog_service, search_index, "Индексация и поиск товаров", "Elasticsearch API")
+Rel(catalog_service, cache, "Кеширование результатов поиска", "Redis Client")
+Rel(order_service, order_db, "Чтение/запись заказов и корзин", "JDBC")
+Rel(order_service, cache, "Кеширование корзин", "Redis Client")
+Rel(payment_service, order_db, "Обновление статусов оплаты", "JDBC")
+Rel(seller_service, product_db, "Управление товарами продавцов", "JDBC")
+Rel(review_service, review_db, "Чтение/запись отзывов и оценок", "JDBC")
+Rel(recommendation_service, recommendation_db, "Чтение истории для рекомендаций", "JDBC")
+Rel(recommendation_service, cache, "Кеширование рекомендаций", "Redis Client")
+
+' Связи с RabbitMQ - Публикация событий
+Rel(order_service, rabbitmq, "Публикует OrderCreatedEvent, OrderStatusChangedEvent", "AMQP")
+Rel(payment_service, rabbitmq, "Публикует PaymentCompletedEvent, PaymentFailedEvent", "AMQP")
+Rel(catalog_service, rabbitmq, "Публикует ProductUpdatedEvent, ProductCreatedEvent", "AMQP")
+Rel(seller_service, rabbitmq, "Публикует ProductUpdatedEvent", "AMQP")
+
+' Связи с RabbitMQ - Потребление событий
+Rel(rabbitmq, recommendation_service, "Обрабатывает OrderCompletedEvent для обновления рекомендаций", "AMQP")
+Rel(rabbitmq, notification_service_internal, "Обрабатывает OrderStatusChangedEvent, PaymentCompletedEvent", "AMQP")
+Rel(rabbitmq, catalog_service, "Обрабатывает события для обновления индекса", "AMQP")
+
+' Внутренние связи между сервисами
+Rel(order_service, auth_service, "Валидация пользователей и прав", "gRPC")
+Rel(order_service, catalog_service, "Проверка наличия и цены товаров", "gRPC")
+Rel(order_service, payment_service, "Инициация платежей", "gRPC")
+Rel(payment_service, order_service, "Обновление статусов заказов", "gRPC")
+Rel(notification_service_internal, order_service, "Получение данных заказа для уведомлений", "gRPC")
+Rel(seller_service, catalog_service, "Синхронизация товаров", "gRPC")
+Rel(recommendation_service, catalog_service, "Получение данных товаров", "gRPC")
+Rel(recommendation_service, order_service, "Получение истории заказов", "gRPC")
+
+' Внешние интеграции
+Rel(payment_service, payment_gateway_ext, "Инициирует платежи, проверяет статусы, обрабатывает возвраты", "API/HTTPS")
+Rel(order_service, delivery_service_ext, "Передаёт информацию о заказах, получает статусы доставки", "API/HTTPS")
+Rel(notification_service_internal, notification_service_ext, "Отправка email, SMS, push-уведомлений", "API/HTTPS")
+
+' Мониторинг и логирование
+Rel(auth_service, prometheus, "Экспорт метрик", "HTTP")
+Rel(catalog_service, prometheus, "Экспорт метрик", "HTTP")
+Rel(order_service, prometheus, "Экспорт метрик", "HTTP")
+Rel(payment_service, prometheus, "Экспорт метрик", "HTTP")
+Rel(prometheus, grafana, "Визуализация метрик", "HTTP")
+Rel(auth_service, elk_stack, "Отправка логов", "HTTP")
+Rel(catalog_service, elk_stack, "Отправка логов", "HTTP")
+Rel(order_service, elk_stack, "Отправка логов", "HTTP")
+Rel(payment_service, elk_stack, "Отправка логов", "HTTP")
+
+' Резервное копирование
+Rel(backup_service, user_db, "Резервное копирование", "pg_dump")
+Rel(backup_service, product_db, "Резервное копирование", "pg_dump")
+Rel(backup_service, order_db, "Резервное копирование", "pg_dump")
+Rel(backup_service, review_db, "Резервное копирование", "pg_dump")
+Rel(backup_service, recommendation_db, "Резервное копирование", "pg_dump")
+Rel(backup_service, search_index, "Резервное копирование", "Elasticsearch Snapshot API")
+
+@enduml
