@@ -1,0 +1,103 @@
+@startuml
+title Процессы обслуживания интернет-магазина
+
+skinparam defaultFontName Arial
+skinparam defaultFontSize 11
+
+' === КЛЮЧЕВЫЕ ПРОЦЕССЫ ===
+
+card "Разработка" as dev {
+  card "Push кода" as push
+  card "Запуск тестов" as tests
+  card "Сборка образа" as build
+}
+
+card "Развертывание" as deploy {
+  card "ArgoCD синхронизация" as argocd
+  card "Проверка в prod" as verify
+}
+
+card "Мониторинг" as monitor {
+  card "Ежедневная проверка" as daily_check
+  card "Анализ логов" as logs
+  card "Алерты" as alerts
+}
+
+card "Обслуживание" as maintenance {
+  card "Бэкапы БД\n(ежедневно)" as backup
+  card "Обновление\n(по расписанию)" as updates
+  card "Очистка кэша" as cache_clean
+}
+
+card "Инциденты" as incidents {
+  card "Обнаружение" as detect
+  card "Диагностика" as diagnose
+  card "Восстановление" as restore
+}
+
+' === ОСНОВНЫЕ СВЯЗИ ===
+
+' Поток разработки
+push --> tests
+tests --> build
+build --> argocd
+argocd --> verify
+
+' Ежедневные операции
+daily_check --> logs : "При аномалиях"
+logs --> alerts : "Критические ошибки"
+
+' Регулярное обслуживание
+backup --> monitor : "Проверка успешности"
+updates --> dev : "Новые зависимости"
+
+' Инциденты
+alerts --> detect
+detect --> diagnose
+diagnose --> restore
+restore --> verify : "Проверка после восстановления"
+
+' === КТО ОТВЕЧАЕТ ===
+
+actor "Разработчик" as developer
+actor "DevOps" as devops  
+actor "SRE" as sre
+
+developer --> push
+developer --> tests
+
+devops --> argocd
+devops --> build
+
+sre --> daily_check
+sre --> backup
+sre --> detect
+sre --> diagnose
+
+' === КОГДА ВЫПОЛНЯЕТСЯ ===
+
+note on link
+  <b>Разработка:</b> при каждом коммите
+end note
+
+note on link
+  <b>Мониторинг:</b> ежедневно 9:00
+end note
+
+note on link
+  <b>Бэкапы:</b> ежедневно 2:00
+end note
+
+note on link
+  <b>Инциденты:</b> мгновенно при алертах
+end note
+
+' === КЛЮЧЕВЫЕ ПОКАЗАТЕЛИ ===
+
+note bottom of monitor
+  **SLO:**
+  • Доступность: 99.9%
+  • Время ответа: <1с
+  • Восстановление: <30мин
+end note
+@enduml
