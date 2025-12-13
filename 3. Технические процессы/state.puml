@@ -1,0 +1,160 @@
+@startuml
+title Диаграмма состояний интернет-магазина TRPO
+
+state "Гость" as guest
+state "ГлавнаяСтраница" as main
+
+' Аутентификация
+state "Регистрация" as register
+state "ПодтверждениеEmail" as confirm_email
+state "Авторизация" as login
+state "Пользователь" as user
+
+' Пользовательские состояния
+state "Профиль" as profile
+state "РедактированиеПрофиля" as edit_profile
+state "ИсторияЗаказов" as order_history
+state "Корзина" as cart
+state "Избранное" as favorites
+
+' Навигация по магазину
+state "КаталогТоваров" as catalog
+state "КатегорияТоваров" as category
+state "КарточкаТовара" as product_card
+state "ДобавлениеВКорзину" as add_to_cart
+state "ДобавлениеВИзбранное" as add_to_fav
+
+' Корзина и заказ
+state "ПросмотрКорзины" as view_cart
+state "РедактированиеКорзины" as edit_cart
+state "ОформлениеЗаказа" as checkout
+state "ВыборДоставки" as delivery
+state "ВыборОплаты" as payment
+state "ПодтверждениеЗаказа" as confirm_order
+state "ОплатаЗаказа" as process_payment
+
+' Статусы заказа
+state "ОжиданиеПодтверждения" as pending
+state "ЗаказПодтвержден" as confirmed
+state "ЗаказСобирается" as assembling
+state "ЗаказПереданКурьеру" as handed
+state "ЗаказВПути" as shipping
+state "ЗаказДоставлен" as delivered
+state "ОставитьОтзыв" as leave_review
+
+' Возвраты
+state "ВозвратТовара" as return_start
+state "ЗаявкаНаВозврат" as return_request
+state "ОжиданиеРешение" as return_pending
+state "ВозвратОдобрен" as return_approved
+state "ВозвратОплачен" as return_refunded
+state "ВозвратОтклонен" as return_rejected
+
+' Администратор
+state "Администратор" as admin
+state "АдминПанель" as admin_panel
+state "УправлениеТоварами" as manage_products
+state "УправлениеЗаказами" as manage_orders
+state "УправлениеПользователями" as manage_users
+state "ДобавлениеТовара" as add_product
+state "РедактированиеТовара" as edit_product
+state "ИзменениеСтатусаЗаказа" as change_order_status
+state "БлокировкаПользователя" as block_user
+
+' Начало
+[*] --> guest
+guest --> main : Открыл сайт
+
+' Навигация
+main --> catalog : Нажал "Каталог"
+main --> register : Нажал "Регистрация"
+main --> login : Нажал "Войти"
+main --> [*] : Закрыл сайт
+
+' Аутентификация
+register --> confirm_email : Заполнил форму
+confirm_email --> login : Email подтвержден
+login --> user : Успешный вход
+user --> guest : Выход из системы
+
+' Внутри пользователя
+state user {
+    [*] --> main : Авторизован
+    main --> profile : Нажал "Профиль"
+    main --> order_history : Нажал "История"
+    main --> cart : Нажал "Корзина"
+    main --> favorites : Нажал "Избранное"
+    
+    profile --> edit_profile : Нажал "Редактировать"
+    edit_profile --> profile : Сохранил изменения
+}
+
+' Навигация по магазину
+main --> catalog : Нажал "Товары"
+catalog --> category : Выбрал категорию
+category --> product_card : Выбрал товар
+product_card --> category : Нажал "Назад"
+
+' Работа с товаром
+product_card --> add_to_cart : Нажал "В корзину"
+product_card --> add_to_fav : Нажал "В избранное"
+add_to_cart --> product_card : Товар добавлен
+add_to_fav --> product_card : Товар добавлен
+
+' Корзина
+cart --> view_cart : Автоматически
+view_cart --> edit_cart : Нажал "Изменить"
+edit_cart --> view_cart : Сохранил изменения
+view_cart --> checkout : Нажал "Оформить"
+
+' Оформление заказа
+checkout --> delivery : Заполнил адрес
+delivery --> payment : Выбрал способ доставки
+payment --> confirm_order : Выбрал оплату
+confirm_order --> process_payment : Нажал "Оплатить"
+
+' Процесс заказа
+process_payment --> pending : Платеж отправлен
+pending --> confirmed : Платеж подтвержден
+confirmed --> assembling : Начата сборка
+assembling --> handed : Передан курьеру
+handed --> shipping : В пути
+shipping --> delivered : Доставлен
+
+' После доставки
+delivered --> leave_review : Нажал "Оставить отзыв"
+delivered --> return_start : Нажал "Вернуть товар"
+
+' Возврат товара
+return_start --> return_request : Начал возврат
+return_request --> return_pending : Заявка отправлена
+return_pending --> return_approved : Админ одобрил
+return_approved --> return_refunded : Деньги возвращены
+return_pending --> return_rejected : Админ отклонил
+
+' Администратор
+user --> admin : Вход с правами админа
+admin --> user : Выход из админки
+
+state admin {
+    [*] --> admin_panel
+    admin_panel --> manage_products : Нажал "Товары"
+    admin_panel --> manage_orders : Нажал "Заказы"
+    admin_panel --> manage_users : Нажал "Пользователи"
+    
+    manage_products --> add_product : Нажал "Добавить"
+    manage_products --> edit_product : Выбрал товар
+    manage_orders --> change_order_status : Выбрал заказ
+    manage_users --> block_user : Выбрал пользователя
+}
+
+' Возврат на главную
+profile --> main : Нажал "На главную"
+order_history --> main : Нажал "На главную"
+cart --> main : Нажал "Продолжить покупки"
+favorites --> main : Нажал "На главную"
+leave_review --> main : Отзыв оставлен
+return_refunded --> main : Возврат завершен
+return_rejected --> main : Возврат отклонен
+
+@enduml

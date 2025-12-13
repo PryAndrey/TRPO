@@ -1,0 +1,129 @@
+@startuml
+title Диаграмма развертывания микросервисной платформы интернет-магазина
+
+skinparam componentStyle rectangle
+skinparam backgroundColor #FFFFFF
+
+' === 1. ПОЛЬЗОВАТЕЛИ И КЛИЕНТЫ ===
+actor "Покупатель" as buyer
+actor "Продавец" as seller
+actor "Администратор" as admin
+
+rectangle "Клиентские приложения" {
+  [Веб-приложение\nReact + Next.js] as frontend
+}
+
+' === 2. ОСНОВНЫЕ МИКРОСЕРВИСЫ ===
+rectangle "Бэкенд (Kubernetes)" {
+  
+  [API Gateway] as gateway
+  
+  [Аутентификация\nOAuth2/JWT] as auth
+  [Каталог товаров] as catalog
+  [Поиск] as search
+  [Заказы] as orders
+  [Пользователи] as users
+  [Платежи] as payment
+  [Уведомления] as notifications
+  [Рекомендации] as recommendations
+}
+
+' === 3. ХРАНИЛИЩА ДАННЫХ ===
+rectangle "Слой данных" {
+  database "PostgreSQL\nMaster + Replica" as postgres
+  
+  database "Elasticsearch" as elastic
+  
+  database "Redis" as redis
+  
+  queue "RabbitMQ" as rabbitmq
+}
+
+' === 4. ИНФРАСТРУКТУРА ===
+rectangle "Мониторинг" {
+  [Prometheus] as prometheus
+  [Grafana] as grafana
+  [ELK Stack] as elk
+}
+
+cloud "Внешние сервисы" {
+  [Платежный шлюз] as payment_ext
+  [Email сервис] as email_ext
+}
+
+' === 5. КЛЮЧЕВЫЕ СВЯЗИ ===
+
+' 5.1. Клиенты -> Система
+buyer --> frontend : "Покупки"
+seller --> frontend : "Управление"
+admin --> frontend : "Администрирование"
+
+frontend --> gateway : "API запросы"
+
+' 5.2. Gateway -> Сервисы
+gateway --> auth : "Проверка токенов"
+
+gateway --> catalog : "Работа с каталогом"
+gateway --> search : "Поисковые запросы"
+gateway --> orders : "Оформление заказов"
+gateway --> users : "Профили пользователей"
+gateway --> payment : "Обработка платежей"
+gateway --> recommendations : "Получение рекомендаций"
+
+' 5.3. Сервисы -> Хранилища
+catalog --> postgres : "Данные товаров"
+orders --> postgres : "Транзакции заказов"
+users --> postgres : "Профили"
+payment --> postgres : "История платежей"
+
+catalog --> elastic : "Индексация для поиска"
+search --> elastic : "Поисковые запросы"
+
+orders --> redis : "Корзины покупок"
+auth --> redis : "Сессии"
+catalog --> redis : "Кэш каталога"
+
+' 5.4. RabbitMQ: события и обработка
+orders --> rabbitmq : "События заказов"
+payment --> rabbitmq : "События платежей"
+catalog --> rabbitmq : "Изменения товаров"
+
+rabbitmq --> notifications : "События для уведомлений"
+rabbitmq --> recommendations : "События для рекомендаций"
+rabbitmq --> elastic : "Обновление поискового индекса"
+
+' 5.5. Внешние интеграции
+notifications --> email_ext : "Отправка уведомлений"
+payment --> payment_ext : "Обработка платежей"
+
+' 5.6. Мониторинг
+catalog --> prometheus : "Метрики"
+orders --> elk : "Логи"
+prometheus --> grafana : "Визуализация"
+elk --> grafana : "Аналитика логов"
+
+' === 6. ЛЕГЕНДА И ПРИМЕЧАНИЯ ===
+legend right
+  | Цвет | Назначение |
+  | <#FFFFFF> | Бизнес-сервис |
+  | <#D4F4D4> | Хранилище данных |
+  | <#E6F3F7> | Инфраструктура |
+  | <#FFF0F5> | Внешняя система |
+endlegend
+
+note right of rabbitmq
+  <b>Асинхронная коммуникация:</b>
+  Производители → RabbitMQ → Потребители
+  События: заказы, платежи, товары
+</b>
+end note
+
+note left of postgres
+  <b>Хранение данных:</b>
+  PostgreSQL: основные данные
+  Elasticsearch: поиск
+  Redis: кэш и быстрые данные
+</b>
+end note
+
+@enduml
