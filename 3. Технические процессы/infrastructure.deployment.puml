@@ -1,129 +1,146 @@
-@startuml
-title Диаграмма развертывания микросервисной платформы интернет-магазина
+@startuml Infrastructure Deployment
+title Infrastructure Deployment — Интернет-магазин
 
 skinparam componentStyle rectangle
-skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam wrapWidth 200
 
-' === 1. ПОЛЬЗОВАТЕЛИ И КЛИЕНТЫ ===
-actor "Покупатель" as buyer
-actor "Продавец" as seller
-actor "Администратор" as admin
+' =========================================================
+' ПОЛЬЗОВАТЕЛИ
+' =========================================================
+actor "Покупатель" as user
+actor "Продавец / Администратор" as admin
 
+' =========================================================
+' КЛИЕНТСКИЙ УРОВЕНЬ
+' =========================================================
 rectangle "Клиентские приложения" {
-  [Веб-приложение\nReact + Next.js] as frontend
+  [Веб-приложение\n(React + Next.js)] as web
+  [Админ-панель\n(React + Next.js)] as admin_ui
 }
 
-' === 2. ОСНОВНЫЕ МИКРОСЕРВИСЫ ===
-rectangle "Бэкенд (Kubernetes)" {
-  
-  [API Gateway] as gateway
-  
-  [Аутентификация\nOAuth2/JWT] as auth
-  [Каталог товаров] as catalog
-  [Поиск] as search
-  [Заказы] as orders
-  [Пользователи] as users
-  [Платежи] as payment
-  [Уведомления] as notifications
-  [Рекомендации] as recommendations
+user --> web
+admin --> admin_ui
+
+' =========================================================
+' ИНФРАСТРУКТУРА (НАШЕ ПРИЛОЖЕНИЕ)
+' =========================================================
+rectangle "Инфраструктура" {
+
+  rectangle "Kubernetes кластер" {
+
+    [API Gateway\n(Шлюз API)] as gateway
+
+    rectangle "Бизнес-сервисы" {
+      [Сервис аутентификации] as auth
+      [Сервис каталога] as catalog
+      [Сервис поиска] as search
+      [Сервис заказов] as orders
+      [Сервис оплаты] as payment
+      [Сервис продавцов] as seller_svc
+      [Сервис отзывов] as reviews
+      [Сервис уведомлений] as notify
+      [Сервис рекомендаций] as recs
+    }
+
+    queue "RabbitMQ\n(очередь сообщений)" as mq
+  }
 }
 
-' === 3. ХРАНИЛИЩА ДАННЫХ ===
-rectangle "Слой данных" {
-  database "PostgreSQL\nMaster + Replica" as postgres
-  
-  database "Elasticsearch" as elastic
-  
-  database "Redis" as redis
-  
-  queue "RabbitMQ" as rabbitmq
+web --> gateway
+admin_ui --> gateway
+
+gateway --> auth
+gateway --> catalog
+gateway --> search
+gateway --> orders
+gateway --> payment
+gateway --> seller_svc
+gateway --> reviews
+gateway --> notify
+gateway --> recs
+
+' =========================================================
+' ХРАНИЛИЩА ДАННЫХ
+' =========================================================
+rectangle "Хранилища данных" {
+
+  database "PostgreSQL\n(основные данные)" as pg
+  database "Elasticsearch\n(поиск)" as es
+  database "Redis\n(кэш и сессии)" as redis
 }
 
-' === 4. ИНФРАСТРУКТУРА ===
-rectangle "Мониторинг" {
-  [Prometheus] as prometheus
-  [Grafana] as grafana
-  [ELK Stack] as elk
+catalog --> pg
+orders --> pg
+payment --> pg
+seller_svc --> pg
+reviews --> pg
+auth --> pg
+
+search --> es
+catalog --> mq
+orders --> mq
+mq --> search
+mq --> notify
+mq --> recs
+
+gateway --> redis
+catalog --> redis
+search --> redis
+
+' =========================================================
+' ВНЕШНИЕ СЕРВИСЫ
+' =========================================================
+rectangle "Внешние сервисы" {
+
+  cloud "Платёжный провайдер" as ext_pay
+  cloud "Email / SMS провайдер" as ext_msg
+  cloud "OAuth-провайдер\n(социальная авторизация)" as ext_oauth
+  cloud "Сервис доставки" as ext_ship
+  cloud "Объектное хранилище\n(изображения товаров)" as ext_s3
 }
 
-cloud "Внешние сервисы" {
-  [Платежный шлюз] as payment_ext
-  [Email сервис] as email_ext
+payment --> ext_pay : оплата / статус
+notify --> ext_msg : email / sms
+auth --> ext_oauth : OAuth
+orders --> ext_ship : расчёт доставки / трекинг
+catalog --> ext_s3 : загрузка изображений
+
+' =========================================================
+' ПОДДЕРЖКА
+' =========================================================
+rectangle "Поддержка и эксплуатация" {
+  [Сервис резервного копирования] as backup
+  [Мониторинг и логирование] as mon
 }
 
-' === 5. КЛЮЧЕВЫЕ СВЯЗИ ===
+backup --> pg
+backup --> es
 
-' 5.1. Клиенты -> Система
-buyer --> frontend : "Покупки"
-seller --> frontend : "Управление"
-admin --> frontend : "Администрирование"
+gateway --> mon
+orders --> mon
+payment --> mon
 
-frontend --> gateway : "API запросы"
-
-' 5.2. Gateway -> Сервисы
-gateway --> auth : "Проверка токенов"
-
-gateway --> catalog : "Работа с каталогом"
-gateway --> search : "Поисковые запросы"
-gateway --> orders : "Оформление заказов"
-gateway --> users : "Профили пользователей"
-gateway --> payment : "Обработка платежей"
-gateway --> recommendations : "Получение рекомендаций"
-
-' 5.3. Сервисы -> Хранилища
-catalog --> postgres : "Данные товаров"
-orders --> postgres : "Транзакции заказов"
-users --> postgres : "Профили"
-payment --> postgres : "История платежей"
-
-catalog --> elastic : "Индексация для поиска"
-search --> elastic : "Поисковые запросы"
-
-orders --> redis : "Корзины покупок"
-auth --> redis : "Сессии"
-catalog --> redis : "Кэш каталога"
-
-' 5.4. RabbitMQ: события и обработка
-orders --> rabbitmq : "События заказов"
-payment --> rabbitmq : "События платежей"
-catalog --> rabbitmq : "Изменения товаров"
-
-rabbitmq --> notifications : "События для уведомлений"
-rabbitmq --> recommendations : "События для рекомендаций"
-rabbitmq --> elastic : "Обновление поискового индекса"
-
-' 5.5. Внешние интеграции
-notifications --> email_ext : "Отправка уведомлений"
-payment --> payment_ext : "Обработка платежей"
-
-' 5.6. Мониторинг
-catalog --> prometheus : "Метрики"
-orders --> elk : "Логи"
-prometheus --> grafana : "Визуализация"
-elk --> grafana : "Аналитика логов"
-
-' === 6. ЛЕГЕНДА И ПРИМЕЧАНИЯ ===
-legend right
-  | Цвет | Назначение |
-  | <#FFFFFF> | Бизнес-сервис |
-  | <#D4F4D4> | Хранилище данных |
-  | <#E6F3F7> | Инфраструктура |
-  | <#FFF0F5> | Внешняя система |
-endlegend
-
-note right of rabbitmq
-  <b>Асинхронная коммуникация:</b>
-  Производители → RabbitMQ → Потребители
-  События: заказы, платежи, товары
-</b>
+' =========================================================
+' ПОЯСНЕНИЯ
+' =========================================================
+note right of gateway
+  Единая точка входа:
+  - маршрутизация запросов
+  - единый API для клиентов
 end note
 
-note left of postgres
-  <b>Хранение данных:</b>
-  PostgreSQL: основные данные
-  Elasticsearch: поиск
-  Redis: кэш и быстрые данные
-</b>
+note right of mq
+  Асинхронное взаимодействие:
+  - обновление поиска
+  - уведомления
+  - рекомендации
+end note
+
+note left of ext_s3
+  Внешнее хранилище:
+  - изображения товаров
+  - снижает нагрузку на БД
 end note
 
 @enduml
