@@ -1,4 +1,4 @@
-@startuml
+@startuml Maintenance Deployment
 title Процессы обслуживания интернет-магазина
 
 skinparam defaultFontName Arial
@@ -60,7 +60,7 @@ restore --> verify : "Проверка после восстановления"
 ' === КТО ОТВЕЧАЕТ ===
 
 actor "Разработчик" as developer
-actor "DevOps" as devops  
+actor "DevOps" as devops
 actor "SRE" as sre
 
 developer --> push

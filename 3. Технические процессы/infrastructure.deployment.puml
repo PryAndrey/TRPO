@@ -1,146 +1,158 @@
-@startuml Infrastructure Deployment
-title Infrastructure Deployment — Интернет-магазин
+@startuml Infractructure Deployment
+' C4-PlantUML: Deployment
+!includeurl https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Deployment.puml
 
-skinparam componentStyle rectangle
-skinparam shadowing false
-skinparam wrapWidth 200
+LAYOUT_TOP_DOWN()
+title Интернет-магазин — Infrastructure / Deployment
 
-' =========================================================
-' ПОЛЬЗОВАТЕЛИ
-' =========================================================
-actor "Покупатель" as user
-actor "Продавец / Администратор" as admin
+Person(user, "Пользователь интернета", "Покупатель/продавец/администратор работает через веб-интерфейс")
 
-' =========================================================
-' КЛИЕНТСКИЙ УРОВЕНЬ
-' =========================================================
-rectangle "Клиентские приложения" {
-  [Веб-приложение\n(React + Next.js)] as web
-  [Админ-панель\n(React + Next.js)] as admin_ui
-}
+' NOTE: assumed default for missing ADR: фронтенд раздаётся через CDN + объектное хранилище — типичный и простой способ хостинга SPA/Next.js для учебного проекта.
+Boundary(pub, "Публичный интернет") {
 
-user --> web
-admin --> admin_ui
+  Deployment_Node(cdn, "CDN + статический хостинг фронтенда", "CDN + объектное хранилище (S3-совместимое)", "Раздача SPA, edge-кэширование, базовая защита (DDoS/WAF на уровне провайдера)") {
+    Container(frontend, "Фронтенд (SPA)", "TypeScript, React, Next.js", "Веб-приложение + админ-панель")
+  }
 
-' =========================================================
-' ИНФРАСТРУКТУРА (НАШЕ ПРИЛОЖЕНИЕ)
-' =========================================================
-rectangle "Инфраструктура" {
-
-  rectangle "Kubernetes кластер" {
-
-    [API Gateway\n(Шлюз API)] as gateway
-
-    rectangle "Бизнес-сервисы" {
-      [Сервис аутентификации] as auth
-      [Сервис каталога] as catalog
-      [Сервис поиска] as search
-      [Сервис заказов] as orders
-      [Сервис оплаты] as payment
-      [Сервис продавцов] as seller_svc
-      [Сервис отзывов] as reviews
-      [Сервис уведомлений] as notify
-      [Сервис рекомендаций] as recs
-    }
-
-    queue "RabbitMQ\n(очередь сообщений)" as mq
+  Boundary(ext, "Внешние сервисы") {
+    System_Ext(pay_ext, "Платёжная система", "Внешняя обработка онлайн-платежей и возвратов")
+    System_Ext(delivery_ext, "Служба доставки", "Внешний сервис логистики и статусов доставки")
+    System_Ext(notify_ext, "Внешняя система уведомлений", "Email/SMS/Push через сторонний провайдер")
   }
 }
 
-web --> gateway
-admin_ui --> gateway
+Boundary(priv, "Частная сеть (VPC/кластерная сеть)") {
 
-gateway --> auth
-gateway --> catalog
-gateway --> search
-gateway --> orders
-gateway --> payment
-gateway --> seller_svc
-gateway --> reviews
-gateway --> notify
-gateway --> recs
+  ' NOTE: assumed default for missing ADR: TLS-терминация на внешнем балансировщике/Ingress — стандартная практика для Kubernetes и упрощает управление сертификатами.
+  Deployment_Node(entry, "Точка входа в API", "Load Balancer + Ingress", "TLS-терминация, маршрутизация в API Gateway, базовые политики безопасности (лимиты/фильтры)") {
+    Container(api_gw, "API Gateway", "Envoy Proxy", "Маршрутизация, балансировка, безопасность, rate limiting")
+  }
 
-' =========================================================
-' ХРАНИЛИЩА ДАННЫХ
-' =========================================================
-rectangle "Хранилища данных" {
+  Deployment_Node(k8s, "Кластер Kubernetes", "Kubernetes (Docker)", "Развертывание микросервисов") {
 
-  database "PostgreSQL\n(основные данные)" as pg
-  database "Elasticsearch\n(поиск)" as es
-  database "Redis\n(кэш и сессии)" as redis
+    Deployment_Node(ns_backend, "Зона: Backend", "Kubernetes", "") {
+      Container(auth, "Сервис аутентификации (Auth)", "Kotlin, Spring Boot", "OAuth 2.0 / OIDC, JWT, роли")
+      Container(catalog, "Сервис каталога (Catalog)", "Kotlin, Spring Boot", "Каталог: поиск, фильтрация, карточки товаров")
+      Container(orders, "Сервис заказов (Order)", "Kotlin, Spring Boot", "Корзина и заказы: создание, статусы, история")
+      Container(payments, "Сервис платежей (Payment)", "Kotlin, Spring Boot", "Платежи/возвраты, интеграция с платёжной системой")
+      Container(reco, "Сервис рекомендаций (Recommendation)", "Kotlin, Spring Boot", "Рекомендации по истории просмотров/покупок")
+      Container(notify, "Сервис уведомлений (Notification)", "Kotlin, Spring Boot", "Отправка уведомлений через внешние сервисы")
+
+      Container(workers, "Фоновые воркеры", "Kotlin, Spring Boot", "Отложенные вычисления/конвейеры: обновление статистики, пересчёт рейтингов, генерация отчётов, обработка изображений, интеграции с внешними API, инвалидация/пересчёт кэшей по событиям")
+    }
+
+    Deployment_Node(async, "Асинхронная обработка", "RabbitMQ", "Брокер сообщений") {
+      Container(queue, "RabbitMQ", "Erlang", "Очереди/события для фоновой обработки")
+    }
+  }
+
+  ' NOTE: assumed default for missing ADR: слой данных вынесен из Kubernetes как managed-сервисы в той же VPC — это упрощает эксплуатацию и соответствует типовой практике.
+  Deployment_Node(data, "Слой данных", "PostgreSQL / Elasticsearch / Redis (managed)", "Полиглотное хранение") {
+    ContainerDb(pg_primary, "PostgreSQL: primary", "PostgreSQL", "Транзакционные данные (пользователи/заказы/платежи/каталог/отзывы/рекомендации)")
+    ContainerDb(pg_repl, "PostgreSQL: read replicas (x2)", "PostgreSQL", "Чтение (учитывать задержку репликации)")
+    ContainerDb(es_search, "Elasticsearch (поиск)", "Elasticsearch", "Поисковый индекс каталога")
+    ContainerDb(redis, "Redis", "Redis", "Кэш (страницы/поиск), сессии, корзины")
+  }
+
+  Deployment_Node(obs, "Наблюдаемость", "Prometheus / Grafana / ELK", "") {
+    Container(prom, "Prometheus", "Go", "Сбор метрик производительности и доступности")
+    Container(graf, "Grafana", "Go", "Дашборды/визуализация метрик")
+    Container(elk, "ELK Stack", "Elasticsearch, Logstash, Kibana", "Централизованное логирование и анализ")
+  }
+
+  note right of entry
+    TLS-терминация: на внешнем балансировщике/Ingress (узел «Точка входа в API»).
+    Защита от DDoS/WAF: на уровне edge (CDN) и/или балансировщика (типовые managed-возможности провайдера).
+    Rate limiting: в API Gateway (Envoy) как первая линия защиты от перегрузки API.
+  end note
+
+  note right of data
+    Размещение слоя данных: выделенный сегмент в частной сети (managed-сервисы), доступ только из VPC/кластера.
+    Read replicas: 2 реплики для масштабирования чтения.
+    Бэкапы и retention (DUR01):
+    - PostgreSQL: ежедневный pg_dump, хранение 7 дней в объектном хранилище.
+    - Elasticsearch: ежедневные snapshots через Snapshot API, хранение 7 дней в объектном хранилище.
+    - Redis: AOF (для восстановления после рестарта) + ежедневный RDB-снимок, хранение 3 дня.
+    Failover (DUR02):
+    - PostgreSQL: автоматическое переключение primary (managed-механизм; типовой аналог — Patroni).
+    - Elasticsearch/Redis: автоматическое восстановление/перезапуск на уровне managed-кластера.
+  end note
 }
 
-catalog --> pg
-orders --> pg
-payment --> pg
-seller_svc --> pg
-reviews --> pg
-auth --> pg
+' --- Основной пользовательский поток ---
+Rel(user, frontend, "Открывает интерфейс интернет-магазина", "HTTPS")
+Rel(frontend, entry, "Запросы к API (в т.ч. с JWT после логина)", "HTTPS")
+Rel(entry, api_gw, "Проксирование запросов в кластер", "HTTPS")
 
-search --> es
-catalog --> mq
-orders --> mq
-mq --> search
-mq --> notify
-mq --> recs
+' --- Маршрутизация в микросервисы через API Gateway ---
+Rel(api_gw, auth, "Маршрутизация /api/auth", "HTTP/gRPC")
+Rel(api_gw, catalog, "Маршрутизация /api/catalog", "HTTP/gRPC")
+Rel(api_gw, orders, "Маршрутизация /api/orders", "HTTP/gRPC")
+Rel(api_gw, payments, "Маршрутизация /api/payments", "HTTP/gRPC")
+Rel(api_gw, reco, "Маршрутизация /api/recommendations", "HTTP/gRPC")
+Rel(api_gw, notify, "Маршрутизация /api/notifications", "HTTP/gRPC")
 
-gateway --> redis
-catalog --> redis
-search --> redis
+' --- Аутентификация/токены ---
+Rel(frontend, api_gw, "Логин/обновление токенов через API", "HTTPS")
 
-' =========================================================
-' ВНЕШНИЕ СЕРВИСЫ
-' =========================================================
-rectangle "Внешние сервисы" {
+' NOTE: assumed default for missing ADR: refresh tokens храним в БД в виде хэшей и ротируем при использовании — это распространённая практика для повышения безопасности.
+Rel(auth, frontend, "Выдаёт JWT (15 мин) + refresh token (30 дней); refresh token хранится в PostgreSQL как хэш, ротация при обновлении", "HTTPS")
+Rel(auth, api_gw, "Публикует публичные ключи (JWKS) для проверки JWT и состав claims/ролей", "Конфигурация/HTTPS")
 
-  cloud "Платёжный провайдер" as ext_pay
-  cloud "Email / SMS провайдер" as ext_msg
-  cloud "OAuth-провайдер\n(социальная авторизация)" as ext_oauth
-  cloud "Сервис доставки" as ext_ship
-  cloud "Объектное хранилище\n(изображения товаров)" as ext_s3
-}
+' --- Доступ к данным (CP: запись в primary, чтение с replica) ---
+' NOTE: assumed default for missing ADR: автоматический failover реализован managed-кластером (или Patroni-подобным оркестратором) — стандарт для PostgreSQL в HA-схемах.
+Rel(pg_primary, pg_repl, "Репликация (primary → replica); автоматическое переключение primary при сбое", "PostgreSQL replication")
 
-payment --> ext_pay : оплата / статус
-notify --> ext_msg : email / sms
-auth --> ext_oauth : OAuth
-orders --> ext_ship : расчёт доставки / трекинг
-catalog --> ext_s3 : загрузка изображений
+Rel(auth, pg_primary, "Запись пользователей/ролей", "JDBC")
+Rel(auth, pg_repl, "Чтение пользователей/ролей", "JDBC")
 
-' =========================================================
-' ПОДДЕРЖКА
-' =========================================================
-rectangle "Поддержка и эксплуатация" {
-  [Сервис резервного копирования] as backup
-  [Мониторинг и логирование] as mon
-}
+Rel(orders, pg_primary, "Запись заказов/корзин", "JDBC")
+Rel(orders, pg_repl, "Чтение заказов/истории", "JDBC")
 
-backup --> pg
-backup --> es
+Rel(payments, pg_primary, "Запись статусов оплаты/возвратов", "JDBC")
+Rel(payments, pg_repl, "Чтение статусов/истории", "JDBC")
 
-gateway --> mon
-orders --> mon
-payment --> mon
+Rel(catalog, pg_primary, "Запись данных каталога (в т.ч. атрибуты в JSONB)", "JDBC")
+Rel(catalog, pg_repl, "Чтение данных каталога", "JDBC")
+Rel(catalog, es_search, "Индексация/поиск", "Elasticsearch API")
+Rel(catalog, redis, "Кэширование каталога/поиска", "Redis client")
 
-' =========================================================
-' ПОЯСНЕНИЯ
-' =========================================================
-note right of gateway
-  Единая точка входа:
-  - маршрутизация запросов
-  - единый API для клиентов
-end note
+Rel(orders, redis, "Кэширование корзины", "Redis client")
 
-note right of mq
-  Асинхронное взаимодействие:
-  - обновление поиска
-  - уведомления
-  - рекомендации
-end note
+' NOTE: assumed default for missing ADR: модель рекомендаций основана на событиях взаимодействия пользователя с товаром (просмотр/покупка/оценка) в простой событийной таблице.
+Rel(reco, pg_primary, "Запись истории взаимодействий (таблица user_events: view/purchase/rating)", "JDBC")
+Rel(reco, pg_repl, "Чтение истории для рекомендаций", "JDBC")
+Rel(reco, redis, "Кэширование рекомендаций", "Redis client")
 
-note left of ext_s3
-  Внешнее хранилище:
-  - изображения товаров
-  - снижает нагрузку на БД
-end note
+' --- Асинхронная обработка (очередь + фоновые воркеры/консьюмеры) ---
+Rel(orders, queue, "Публикует события домена", "AMQP")
+Rel(payments, queue, "Публикует события домена", "AMQP")
+Rel(catalog, queue, "Публикует события домена", "AMQP")
+Rel(queue, notify, "Доставка событий для отправки уведомлений", "AMQP")
+Rel(queue, reco, "Доставка событий для обновления рекомендаций", "AMQP")
+Rel(queue, workers, "Доставка событий для фоновых задач", "AMQP")
 
+' --- Внешние интеграции ---
+Rel(payments, pay_ext, "Платежи/возвраты", "API/HTTPS")
+Rel(orders, delivery_ext, "Передача заказов и получение статусов доставки", "API/HTTPS")
+Rel(notify, notify_ext, "Отправка email/SMS/push", "API/HTTPS")
+
+' --- Метрики и логи ---
+Rel(auth, prom, "Экспорт метрик", "HTTP")
+Rel(catalog, prom, "Экспорт метрик", "HTTP")
+Rel(orders, prom, "Экспорт метрик", "HTTP")
+Rel(payments, prom, "Экспорт метрик", "HTTP")
+Rel(reco, prom, "Экспорт метрик", "HTTP")
+Rel(notify, prom, "Экспорт метрик", "HTTP")
+Rel(prom, graf, "Визуализация метрик", "HTTP")
+
+Rel(auth, elk, "Отправка логов", "HTTP")
+Rel(catalog, elk, "Отправка логов", "HTTP")
+Rel(orders, elk, "Отправка логов", "HTTP")
+Rel(payments, elk, "Отправка логов", "HTTP")
+Rel(reco, elk, "Отправка логов", "HTTP")
+Rel(notify, elk, "Отправка логов", "HTTP")
+Rel(workers, elk, "Отправка логов", "HTTP")
+
+SHOW_LEGEND()
 @enduml
